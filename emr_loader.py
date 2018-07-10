@@ -16,7 +16,7 @@ logger.addHandler(ch)
 class EMRLoader(object):
     def __init__(self, aws_access_key, aws_secret_access_key, region_name,
                  cluster_name, instance_count, master_instance_type, slave_instance_type,
-                 key_name, subnet_id, log_uri, software_version, script_bucket_name):
+                 key_name, subnet_id, log_uri, software_version, script_bucket_name, db_username, db_password):
         self.aws_access_key = aws_access_key
         self.aws_secret_access_key = aws_secret_access_key
         self.region_name = region_name
@@ -29,6 +29,8 @@ class EMRLoader(object):
         self.log_uri = log_uri
         self.software_version = software_version
         self.script_bucket_name = script_bucket_name
+        self.db_username = db_username
+        self.db_password = db_password
 
     def boto_client(self, service):
         client = boto3.client(service,
@@ -52,13 +54,29 @@ class EMRLoader(object):
                 'Ec2SubnetId': self.subnet_id
             },
             Applications=[
+                {'Name':'Hadoop'},
+                {'Name':'Spark'},
+                {'Name':'Ganglia'},
+                {'Name':'Hive'},
+                {'Name':'Hue'},
+                {'Name':'Presto'},
+                {'Name':'Zeppelin'},
+                {'Name':'Oozie'}
+            ],
+            Configurations=[
                 {
-                    'Name': 'Spark'
+                "Classification": "hive-site",
+                    "Properties": {
+                        "javax.jdo.option.ConnectionURL": "jdbc:mysql:\/\/datascience-mysql.ds.readm.co.nz:3306\/hive?createDatabaseIfNotExist=true",
+                        "javax.jdo.option.ConnectionDriverName": "org.mariadb.jdbc.Driver",
+                        "javax.jdo.option.ConnectionUserName": self.db_username,
+                        "javax.jdo.option.ConnectionPassword": self.db_password
+                        }
                 }
             ],
             BootstrapActions=[
                 {
-                    'Name': 'Install Conda',
+                    'Name': 'Install Anaconda2',
                     'ScriptBootstrapAction': {
                         'Path': 's3://{script_bucket_name}/bootstrap_actions.sh'.format(
                             script_bucket_name=self.script_bucket_name),
@@ -88,11 +106,22 @@ class EMRLoader(object):
                     }
                 },
                 {
-                    'Name': 'setup pyspark with conda',
+                    'Name': 'setup pyspark with anaconda',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['sudo', 'bash', '/home/hadoop/pyspark_quick_setup.sh', master_dns]
+                    }
+                },
+                {
+                    'Name': 'setup - copy zeppelin config file',
+                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': ['aws', 's3', 'cp',
+                                 's3://{script_bucket_name}/zeppelin-site.xml'.format(
+                                     script_bucket_name=self.script_bucket_name),
+                                 '/etc/zeppelin/conf/']
                     }
                 }
             ]
@@ -136,7 +165,9 @@ def main():
         subnet_id=config_emr.get("subnet_id"),
         log_uri=config_emr.get("log_uri"),
         software_version=config_emr.get("software_version"),
-        script_bucket_name=config_emr.get("script_bucket_name")
+        script_bucket_name=config_emr.get("script_bucket_name"),
+        db_username=config_emr.get("db_username"),
+        db_password=config_emr.get("db_password")
     )
 
     logger.info(
