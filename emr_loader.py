@@ -67,7 +67,7 @@ class EMRLoader(object):
                 {
                 "Classification": "hive-site",
                     "Properties": {
-                        "javax.jdo.option.ConnectionURL": "jdbc:mysql:\/\/datascience-mysql.ds.readm.co.nz:3306\/hive?createDatabaseIfNotExist=true",
+                        "javax.jdo.option.ConnectionURL": "jdbc:mysql://datascience-mysql.ds.readm.co.nz:3306/hive?createDatabaseIfNotExist=true",
                         "javax.jdo.option.ConnectionDriverName": "org.mariadb.jdbc.Driver",
                         "javax.jdo.option.ConnectionUserName": self.db_username,
                         "javax.jdo.option.ConnectionPassword": self.db_password

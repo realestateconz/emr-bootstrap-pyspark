@@ -9,9 +9,9 @@ echo -e '\nexport SPARK_HOME=/usr/lib/spark\nexport PATH=$HOME/anaconda2/bin:$PA
 
 
 #Dependencies for MySQL
-sudo apt-get update
-sudo apt-get install libmysqlclient-dev
-sudo apt-get install libmysql-java
+sudo yum check-update -quiet
+sudo yum -y install mysql mysql-server
+sudo yum -y install mysql-connector-java
 
 
 # install packages
@@ -19,19 +19,18 @@ conda install -y ipython jupyter
 conda install -y anaconda nltk
 conda install -y -c conda-forge fuzzywuzzy
 conda install -y -c conda-forge python-levenshtein
-conda install -c conda-forge geopandas
-conda install -c conda-forge pysal
-conda install -c anaconda sqlalchemy
-conda install -c anaconda pymysql
-conda install mysqlclient
+conda install -y -c conda-forge pysal
+conda install -y -c anaconda sqlalchemy
+conda install -y -c anaconda pymysql
+conda install -y mysqlclient
 
 # cleanup:
-rm ~/anaconda2.sh
+#rm ~/anaconda2.sh
 
 # enable https://github.com/mozilla/jupyter-spark:
 sudo mkdir -p /usr/local/share/jupyter
 sudo chmod -R 777 /usr/local/share/jupyter
-conda install -c akode jupyter-spark
+conda install -y -c akode jupyter-spark
 jupyter serverextension enable --py jupyter_spark
 jupyter nbextension install --py jupyter_spark
 jupyter nbextension enable --py jupyter_spark
