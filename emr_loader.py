@@ -95,6 +95,17 @@ class EMRLoader(object):
             JobFlowId=job_flow_id,
             Steps=[
                 {
+                    'Name': 'setup - copy zeppelin config file',
+                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': ['aws', 's3', 'cp',
+                                    's3://{script_bucket_name}/zeppelin-site.xml'.format(
+                                        script_bucket_name=self.script_bucket_name),
+                                    '/etc/zeppelin/conf/']
+                    }
+                },
+                {
                     'Name': 'setup - copy files',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
                     'HadoopJarStep': {
@@ -114,16 +125,12 @@ class EMRLoader(object):
                     }
                 },
                 {
-                    'Name': 'setup - copy zeppelin config file',
+                    'Name': 'hive-schema-setup',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
-                    'HadoopJarStep': {
-                        'Jar': 'command-runner.jar',
-                        'Args': ['aws', 's3', 'cp',
-                                 's3://{script_bucket_name}/zeppelin-site.xml'.format(
-                                     script_bucket_name=self.script_bucket_name),
-                                 '/etc/zeppelin/conf/']
-                    }
+                    'Type': 'HIVE',
+                    'Args': ['-f','s3://{script_bucket_name}/hive-schema.hql']
                 }
+
             ]
         )
         logger.info(response)
@@ -178,6 +185,10 @@ def main():
                             key_name="bootstrap_actions.sh")
     emr_loader.upload_to_s3("scripts/pyspark_quick_setup.sh", bucket_name=config_emr.get("script_bucket_name"),
                             key_name="pyspark_quick_setup.sh")
+    emr_loader.upload_to_s3("scripts/hive-schema.hql", bucket_name=config_emr.get("script_bucket_name"),
+                                key_name="hive-schema.hql")
+    emr_loader.upload_to_s3("files/zeppelin-site.xml", bucket_name=config_emr.get("script_bucket_name"),
+                            key_name="zeppelin-site.xml")
 
     logger.info(
         "*******************************************+**********************************************************")
