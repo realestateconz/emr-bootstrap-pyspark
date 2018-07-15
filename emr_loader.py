@@ -91,12 +91,6 @@ class EMRLoader(object):
         return response
 
     def add_step(self, job_flow_id, master_dns):
-        # First create your hive command line arguments
-        hive_args = "hive -v -f s3://{script_bucket_name}/hive-schema.hql"
-
-        # Split the hive args to a list
-        hive_args_list = hive_args.split()
-
         response = self.boto_client("emr").add_job_flow_steps(
             JobFlowId=job_flow_id,
             Steps=[
@@ -112,23 +106,12 @@ class EMRLoader(object):
                     }
                 },
                 {
-                    'Name': 'setup - copy pyspark related files',
+                    'Name': 'setup - copy files',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['aws', 's3', 'cp',
                                  's3://{script_bucket_name}/pyspark_quick_setup.sh'.format(
-                                     script_bucket_name=self.script_bucket_name),
-                                 '/home/hadoop/']
-                    }
-                },
-                {
-                    'Name': 'setup - copy gbq access files',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
-                    'HadoopJarStep': {
-                        'Jar': 'command-runner.jar',
-                        'Args': ['aws', 's3', 'cp',
-                                 's3://{script_bucket_name}/google_api_credentials.json'.format(
                                      script_bucket_name=self.script_bucket_name),
                                  '/home/hadoop/']
                     }
@@ -144,10 +127,8 @@ class EMRLoader(object):
                 {
                     'Name': 'hive-schema-setup',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
-                    'HadoopJarStep': {
-                        'Jar': 'command-runner.jar',
-                        'Args': hive_args_list
-                    }
+                    'Type': 'HIVE',
+                    'Args': ['-f','s3://{script_bucket_name}/hive-schema.hql']
                 }
 
             ]
@@ -228,15 +209,10 @@ def main():
         job_state = job_response.get("Cluster").get("Status").get("State")
         job_state_reason = job_response.get("Cluster").get("Status").get("StateChangeReason").get("Message")
 
-        if job_state in ["TERMINATED", "TERMINATED_WITH_ERRORS"]:
+        if job_state in ["WAITING", "TERMINATED", "TERMINATED_WITH_ERRORS"]:
             step = False
             logger.info(
                 "Script stops with state: {job_state} "
-                "and reason: {job_state_reason}".format(job_state=job_state, job_state_reason=job_state_reason))
-            break
-        elif job_state in ["WAITING"]:
-            logger.info(
-                "Script moves to do steps with state: {job_state} "
                 "and reason: {job_state_reason}".format(job_state=job_state, job_state_reason=job_state_reason))
             break
         else:
