@@ -95,3 +95,4 @@ ENV/
 # Project specific
 config.yml
 .idea/
+files/*
