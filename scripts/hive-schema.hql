@@ -1,7 +1,7 @@
-CREATE SCHEMA reportingwarehouse;
+CREATE SCHEMA IF NOT EXISTS reportingwarehouse;
 Use reportingwarehouse;
 
-CREATE EXTERNAL TABLE rnz_listing (
+CREATE EXTERNAL TABLE IF NOT EXISTS rnz_listing (
 listing_id int,
 source string,
 exchange_partner string,
@@ -114,10 +114,10 @@ LOCATION 's3://reconz-raw-datalake-ds/dbs-mssqlprod/ReportingWarehouse/monthly-l
 MSCK REPAIR TABLE rnz_listing;
 
 
-CREATE SCHEMA metricsdata;
+CREATE SCHEMA IF NOT EXISTS metricsdata;
 Use metricsdata;
 
-CREATE EXTERNAL TABLE `Metrics`(
+CREATE EXTERNAL TABLE IF NOT EXISTS `Metrics`(
   `source` string,
   `object_id` int,
   `object_type` string,

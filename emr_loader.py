@@ -3,6 +3,7 @@ import botocore
 import yaml
 import time
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -16,7 +17,7 @@ logger.addHandler(ch)
 class EMRLoader(object):
     def __init__(self, aws_access_key, aws_secret_access_key, region_name,
                  cluster_name, instance_count, master_instance_type, slave_instance_type,
-                 key_name, subnet_id, log_uri, software_version, script_bucket_name, db_username, db_password):
+                 key_name, subnet_id, log_uri, software_version, script_bucket_name, config_bucket_name, db_username, db_password):
         self.aws_access_key = aws_access_key
         self.aws_secret_access_key = aws_secret_access_key
         self.region_name = region_name
@@ -29,6 +30,7 @@ class EMRLoader(object):
         self.log_uri = log_uri
         self.software_version = software_version
         self.script_bucket_name = script_bucket_name
+        self.config_bucket_name = config_bucket_name
         self.db_username = db_username
         self.db_password = db_password
 
@@ -91,6 +93,11 @@ class EMRLoader(object):
         return response
 
     def add_step(self, job_flow_id, master_dns):
+        # First create your hive command line arguments
+        hive_args = "hive -v -f s3://{script_bucket_name}/hive-schema.hql"
+
+        # Split the hive args to a list
+        hive_args_list = hive_args.split()
         response = self.boto_client("emr").add_job_flow_steps(
             JobFlowId=job_flow_id,
             Steps=[
@@ -100,13 +107,24 @@ class EMRLoader(object):
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['aws', 's3', 'cp',
-                                    's3://{script_bucket_name}/zeppelin-site.xml'.format(
-                                        script_bucket_name=self.script_bucket_name),
+                                    's3://{config_bucket_name}/zeppelin-site.xml'.format(
+                                        config_bucket_name=self.config_bucket_name),
                                     '/etc/zeppelin/conf/']
                     }
                 },
                 {
-                    'Name': 'setup - copy files',
+                    'Name': 'setup - copy gbq access files',
+                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': ['aws', 's3', 'cp',
+                                 's3://{config_bucket_name}/google_api_credentials.json'.format(
+                                     config_bucket_name=self.config_bucket_name),
+                                 '/home/hadoop/']
+                    }
+                },
+                {
+                    'Name': 'setup - copy pyspark setup file',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
@@ -125,10 +143,31 @@ class EMRLoader(object):
                     }
                 },
                 {
+                    'Name': 'setup - copy spark jar setup files',
+                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': ['aws', 's3', 'cp',
+                                 's3://{script_bucket_name}/reqd_files_setup.sh'.format(
+                                     script_bucket_name=self.script_bucket_name),
+                                 '/home/hadoop/']
+                    }
+                },
+                {
+                    'Name': 'copy spark jars to the spark folder',
+                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': ['sudo', 'bash', '/home/hadoop/reqd_files_setup.sh', self.config_bucket_name,self.script_bucket_name]
+                    }
+                },
+                {
                     'Name': 'hive-schema-setup',
                     'ActionOnFailure': 'CANCEL_AND_WAIT',
-                    'Type': 'HIVE',
-                    'Args': ['-f','s3://{script_bucket_name}/hive-schema.hql']
+                    'HadoopJarStep': {
+                        'Jar': 'command-runner.jar',
+                        'Args': hive_args_list
+                    }
                 }
 
             ]
@@ -151,12 +190,23 @@ class EMRLoader(object):
             "Upload file '{file_name}' to bucket '{bucket_name}'".format(file_name=file_name, bucket_name=bucket_name))
         s3.upload_file(file_name, bucket_name, key_name)
 
+    def uploadDirectory(self, local_directory, bucket_name):
+        s3 = self.boto_client("s3")
+        # enumerate local files recursively
+        for root, dirs, files in os.walk(local_directory):
+          for file in files:
+            # construct the full local path
+            file_name = os.path.join(root, file)
+            logger.info(
+                "Upload file '{file_name}' to bucket '{bucket_name}'".format(file_name=file_name, bucket_name=bucket_name))
+            s3.upload_file(file_name, bucket_name, file)
+
 
 def main():
     logger.info(
         "*******************************************+**********************************************************")
     logger.info("Load config and set up client.")
-    with open("config.yml", "r") as file:
+    with open("configs/config.yml", "r") as file:
         config = yaml.load(file)
     config_emr = config.get("emr")
 
@@ -173,6 +223,7 @@ def main():
         log_uri=config_emr.get("log_uri"),
         software_version=config_emr.get("software_version"),
         script_bucket_name=config_emr.get("script_bucket_name"),
+        config_bucket_name=config_emr.get("config_bucket_name"),
         db_username=config_emr.get("db_username"),
         db_password=config_emr.get("db_password")
     )
@@ -187,8 +238,13 @@ def main():
                             key_name="pyspark_quick_setup.sh")
     emr_loader.upload_to_s3("scripts/hive-schema.hql", bucket_name=config_emr.get("script_bucket_name"),
                                 key_name="hive-schema.hql")
-    emr_loader.upload_to_s3("files/zeppelin-site.xml", bucket_name=config_emr.get("script_bucket_name"),
-                            key_name="zeppelin-site.xml")
+    emr_loader.uploadDirectory("files", bucket_name=config_emr.get("script_bucket_name"))
+    emr_loader.create_bucket_on_s3(bucket_name=config_emr.get("config_bucket_name"))
+    emr_loader.upload_to_s3("configs/google-api-credentials.json", bucket_name=config_emr.get("config_bucket_name"),
+                                key_name="google-api-credentials.json")
+    emr_loader.upload_to_s3("configs/zeppelin-site.xml", bucket_name=config_emr.get("config_bucket_name"),
+                                key_name="zeppelin-site.xml")
+
 
     logger.info(
         "*******************************************+**********************************************************")
@@ -209,7 +265,7 @@ def main():
         job_state = job_response.get("Cluster").get("Status").get("State")
         job_state_reason = job_response.get("Cluster").get("Status").get("StateChangeReason").get("Message")
 
-        if job_state in ["WAITING", "TERMINATED", "TERMINATED_WITH_ERRORS"]:
+        if job_state in ["TERMINATED", "TERMINATED_WITH_ERRORS"]:
             step = False
             logger.info(
                 "Script stops with state: {job_state} "

@@ -93,6 +93,6 @@ ENV/
 .ropeproject
 
 # Project specific
-config.yml
+configs/*
 .idea/
 files/*
