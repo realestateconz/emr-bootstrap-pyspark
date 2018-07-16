@@ -42,6 +42,11 @@ class EMRLoader(object):
         return client
 
     def load_cluster(self):
+        # First create your hive command line arguments
+        hive_args = "hive -v -f s3://{script_bucket_name}/hive-schema.hql".format(script_bucket_name=self.script_bucket_name)
+
+        # Split the hive args to a list
+        hive_args_list = hive_args.split()
         response = self.boto_client("emr").run_job_flow(
             Name=self.cluster_name,
             LogUri=self.log_uri,
@@ -87,20 +92,7 @@ class EMRLoader(object):
             ],
             VisibleToAllUsers=True,
             JobFlowRole='EMR_EC2_DefaultRole',
-            ServiceRole='EMR_DefaultRole'
-        )
-        logger.info(response)
-        return response
-
-    def add_step(self, job_flow_id, master_dns):
-        # First create your hive command line arguments
-        hive_args = "hive -v -f s3://{script_bucket_name}/hive-schema.hql".format(script_bucket_name=self.script_bucket_name)
-
-        # Split the hive args to a list
-        hive_args_list = hive_args.split()
-
-        response = self.boto_client("emr").add_job_flow_steps(
-            JobFlowId=job_flow_id,
+            ServiceRole='EMR_DefaultRole',
             Steps=[
                 {
                     'Name': 'Setup Debugging',
@@ -148,7 +140,7 @@ class EMRLoader(object):
                     'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
-                        'Args': ['sudo', 'bash', '/home/hadoop/pyspark_quick_setup.sh', master_dns]
+                        'Args': ['sudo', 'bash', '/home/hadoop/pyspark_quick_setup.sh']
                     }
                 },
                 {
@@ -261,51 +253,7 @@ def main():
         "*******************************************+**********************************************************")
     logger.info("Create cluster and run boostrap.")
     emr_response = emr_loader.load_cluster()
-    emr_client = emr_loader.boto_client("emr")
-
-    while True:
-        job_response = emr_client.describe_cluster(
-            ClusterId=emr_response.get("JobFlowId")
-        )
-        time.sleep(10)
-        if job_response.get("Cluster").get("MasterPublicDnsName") is not None:
-            master_dns = job_response.get("Cluster").get("MasterPublicDnsName")
-
-        step = True
-
-        job_state = job_response.get("Cluster").get("Status").get("State")
-        job_state_reason = job_response.get("Cluster").get("Status").get("StateChangeReason").get("Message")
-
-        if job_state in ["WAITING","TERMINATED", "TERMINATED_WITH_ERRORS"]:
-            step = False
-            logger.info(
-                "Script stops with state: {job_state} "
-                "and reason: {job_state_reason}".format(job_state=job_state, job_state_reason=job_state_reason))
-            break
-        else:
-            logger.info(job_response)
-
-    if step:
-        logger.info(
-            "*******************************************+**********************************************************")
-        logger.info("Run steps.")
-        add_step_response = emr_loader.add_step(emr_response.get("JobFlowId"), master_dns)
-        #add_step_response = emr_loader.add_step('j-259T2YHKBMMLU', '10.110.15.98')
-
-        while True:
-            list_steps_response = emr_client.list_steps(ClusterId=emr_response.get("JobFlowId"),
-                                                        StepStates=["COMPLETED"])
-            #list_steps_response = emr_client.list_steps(ClusterId="j-259T2YHKBMMLU",
-            #                                            StepStates=["COMPLETED"])
-            time.sleep(10)
-            if len(list_steps_response.get("Steps")) == len(
-                    add_step_response.get("StepIds")):  # make sure that all steps are completed
-                break
-            else:
-                logger.info(emr_client.list_steps(ClusterId=emr_response.get("JobFlowId")))
-                #logger.info(emr_client.list_steps(ClusterId='j-259T2YHKBMMLU'))
-    else:
-        logger.info("Cannot run steps.")
+    logger.info(emr_response)
 
 
 if __name__ == "__main__":
