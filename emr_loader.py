@@ -102,11 +102,19 @@ class EMRLoader(object):
             JobFlowId=job_flow_id,
             Steps=[
                 {
+                    'Name': 'Setup Debugging',
+                    'ActionOnFailure': 'TERMINATE_CLUSTER',
+                    'HadoopJarStep': {
+                    'Jar': 's3://ap-southeast-2.elasticmapreduce/libs/script-runner/script-runner.jar',
+                    'Args': ['s3://ap-southeast-2.elasticmapreduce/libs/state-pusher/0.1/fetch']
+                    }
+                },
+                {
                     'Name': 'setup - copy zeppelin config file',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
-                        'Args': ['aws', 's3', 'cp',
+                        'Args': ['sudo','aws', 's3', 'cp',
                                     's3://{config_bucket_name}/zeppelin-site.xml'.format(
                                         config_bucket_name=self.config_bucket_name),
                                     '/etc/zeppelin/conf/']
@@ -114,18 +122,18 @@ class EMRLoader(object):
                 },
                 {
                     'Name': 'setup - copy gbq access files',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['aws', 's3', 'cp',
-                                 's3://{config_bucket_name}/google_api_credentials.json'.format(
+                                 's3://{config_bucket_name}/google-api-credentials.json'.format(
                                      config_bucket_name=self.config_bucket_name),
                                  '/home/hadoop/']
                     }
                 },
                 {
                     'Name': 'setup - copy pyspark setup file',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['aws', 's3', 'cp',
@@ -136,7 +144,7 @@ class EMRLoader(object):
                 },
                 {
                     'Name': 'setup pyspark with anaconda',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['sudo', 'bash', '/home/hadoop/pyspark_quick_setup.sh', master_dns]
@@ -144,7 +152,7 @@ class EMRLoader(object):
                 },
                 {
                     'Name': 'setup - copy spark jar setup files',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': ['aws', 's3', 'cp',
@@ -155,15 +163,15 @@ class EMRLoader(object):
                 },
                 {
                     'Name': 'copy spark jars to the spark folder',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
-                        'Args': ['sudo', 'bash', '/home/hadoop/reqd_files_setup.sh', self.config_bucket_name,self.script_bucket_name]
+                        'Args': ['sudo', 'bash', '/home/hadoop/reqd_files_setup.sh', self.script_bucket_name]
                     }
                 },
                 {
                     'Name': 'hive-schema-setup',
-                    'ActionOnFailure': 'CANCEL_AND_WAIT',
+                    'ActionOnFailure': 'CONTINUE',
                     'HadoopJarStep': {
                         'Jar': 'command-runner.jar',
                         'Args': hive_args_list
@@ -238,6 +246,8 @@ def main():
                             key_name="pyspark_quick_setup.sh")
     emr_loader.upload_to_s3("scripts/hive-schema.hql", bucket_name=config_emr.get("script_bucket_name"),
                                 key_name="hive-schema.hql")
+    emr_loader.upload_to_s3("scripts/reqd_files_setup.sh", bucket_name=config_emr.get("script_bucket_name"),
+                                key_name="reqd_files_setup.sh")
     emr_loader.uploadDirectory("files", bucket_name=config_emr.get("script_bucket_name"))
     emr_loader.create_bucket_on_s3(bucket_name=config_emr.get("config_bucket_name"))
     emr_loader.upload_to_s3("configs/google-api-credentials.json", bucket_name=config_emr.get("config_bucket_name"),
@@ -265,7 +275,7 @@ def main():
         job_state = job_response.get("Cluster").get("Status").get("State")
         job_state_reason = job_response.get("Cluster").get("Status").get("StateChangeReason").get("Message")
 
-        if job_state in ["TERMINATED", "TERMINATED_WITH_ERRORS"]:
+        if job_state in ["WAITING","TERMINATED", "TERMINATED_WITH_ERRORS"]:
             step = False
             logger.info(
                 "Script stops with state: {job_state} "
